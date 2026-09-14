@@ -1,5 +1,5 @@
 export const FPS = 50
-export const FADE_FRAMES = 3
+export const FADE_FRAMES = 4
 export const TALKING_PROPERTY = 'TALKING'
 export const VOWEL_IDS = new Set([7, 8, 9, 10])
 export const CLOSED_IDS = new Set([5])
@@ -18,39 +18,22 @@ export const VISEME_KEYS = [
   'TH',
 ] as const
 
-export const CARTOON_KEYS = ['BMP', 'AE', 'EE', 'O', 'QUW'] as const
-
 export type VisemeKey = (typeof VISEME_KEYS)[number]
-export type CartoonKey = (typeof CARTOON_KEYS)[number]
 
 export const VISEMES = [
-  { id: 0, key: null, label: 'Rest', group: 'rest', hint: 'diam' },
-  { id: 1, key: 'TH', label: 'TH', group: 'cons', hint: '' },
-  { id: 2, key: 'FV', label: 'FV', group: 'cons', hint: '' },
-  { id: 3, key: 'CHJSH', label: 'CH J SH', group: 'cons', hint: '' },
-  { id: 4, key: 'L', label: 'L', group: 'cons', hint: '' },
-  { id: 5, key: 'BMP', label: 'BMP', group: 'cons', hint: 'tertutup · M B P' },
-  { id: 6, key: 'CDGKN', label: 'CDGKN', group: 'cons', hint: '' },
-  { id: 7, key: 'QUW', label: 'QUW', group: 'vowel', hint: 'maju · U W' },
-  { id: 8, key: 'O', label: 'O', group: 'vowel', hint: 'bulat · O' },
-  { id: 9, key: 'EE', label: 'EE', group: 'vowel', hint: 'senyum · I' },
-  { id: 10, key: 'AE', label: 'AE', group: 'vowel', hint: 'lebar · A E' },
-  { id: 11, key: 'R', label: 'R', group: 'cons', hint: '' },
+  { id: 0, key: null, label: 'Rest', group: 'rest' },
+  { id: 1, key: 'TH', label: 'TH', group: 'cons' },
+  { id: 2, key: 'FV', label: 'FV', group: 'cons' },
+  { id: 3, key: 'CHJSH', label: 'CH J SH', group: 'cons' },
+  { id: 4, key: 'L', label: 'L', group: 'cons' },
+  { id: 5, key: 'BMP', label: 'BMP', group: 'cons' },
+  { id: 6, key: 'CDGKN', label: 'CDGKN', group: 'cons' },
+  { id: 7, key: 'QUW', label: 'QUW', group: 'vowel' },
+  { id: 8, key: 'O', label: 'O', group: 'vowel' },
+  { id: 9, key: 'EE', label: 'EE', group: 'vowel' },
+  { id: 10, key: 'AE', label: 'AE', group: 'vowel' },
+  { id: 11, key: 'R', label: 'R', group: 'cons' },
 ] as const
-
-export const CARTOON_VISEMES: {
-  id: number
-  key: CartoonKey | null
-  label: string
-  hint: string
-}[] = [
-  { id: 0, key: null, label: 'Rest', hint: 'diam' },
-  { id: 5, key: 'BMP', label: 'BMP', hint: 'tertutup · M B P' },
-  { id: 10, key: 'AE', label: 'AE', hint: 'lebar · A E' },
-  { id: 9, key: 'EE', label: 'EE', hint: 'senyum · I' },
-  { id: 8, key: 'O', label: 'O', hint: 'bulat · O' },
-  { id: 7, key: 'QUW', label: 'QUW', hint: 'maju · U W' },
-]
 
 export type VisemeId = (typeof VISEMES)[number]['id']
 export type Language = 'id' | 'en'
@@ -75,26 +58,6 @@ export type Timeline = {
   duration: number
   frames: MouthPose[]
   keyframes: Keyframe[]
-  rms: number[]
-  speech: boolean[]
-  letters: string[]
-  thresh: number
-  usedTranscript: boolean
-}
-
-export const VISEME_COLOR: Record<number, string> = {
-  0: '#2a2d36',
-  1: '#5d8a7a',
-  2: '#7a6b8a',
-  3: '#8a7a5d',
-  4: '#5d7a8a',
-  5: '#8a5d6b',
-  6: '#6b8a5d',
-  7: '#5d6b8a',
-  8: '#8a6b5d',
-  9: '#5d8a8a',
-  10: '#8a8a5d',
-  11: '#6b5d8a',
 }
 
 export function emptyWeights(): MouthWeights {
@@ -141,9 +104,9 @@ export function poseSignature(pose: MouthPose): string {
 }
 
 export function dominantViseme(weights: MouthWeights): number {
-  let bestKey: CartoonKey | null = null
+  let bestKey: VisemeKey | null = null
   let best = 0
-  for (const key of CARTOON_KEYS) {
+  for (const key of VISEME_KEYS) {
     const value = weights[key]
     if (value > best) {
       best = value
@@ -157,39 +120,17 @@ export function copyWeights(weights: MouthWeights): MouthWeights {
   return { ...weights }
 }
 
-export function rememberPose(previous: MouthPose, nextId: number, strength = 100): MouthPose {
-  if (nextId <= 0) return { talking: false, primary: 0, weights: emptyWeights() }
-  const nextKey = visemeKey(nextId)
-  if (!nextKey) return { talking: false, primary: 0, weights: emptyWeights() }
-
-  let memoryId = 0
-  let memoryValue = 0
-  if (previous.primary > 0 && previous.primary !== nextId) {
-    const memKey = visemeKey(previous.primary)
-    memoryId = previous.primary
-    memoryValue = memKey ? previous.weights[memKey] : strength
-  } else {
-    const leftover = nonzeroWeights(previous.weights).find((item) => item.key !== nextKey)
-    if (leftover) {
-      memoryId = visemeIdForKey(leftover.key)
-      memoryValue = leftover.value
-    }
-  }
-
-  return poseFromSlots(nextId, strength, memoryId, memoryValue)
-}
-
 export function soloPose(id: number, strength = 100): MouthPose {
   const key = visemeKey(id)
   const value = clampWeight(strength)
-  if (!key || value <= 0) return { talking: false, primary: 0, weights: emptyWeights() }
+  if (!key || value <= 0) return { ...REST_POSE, weights: emptyWeights() }
   const weights = emptyWeights()
   weights[key] = value
   return { talking: true, primary: id, weights }
 }
 
-export function nonzeroWeights(weights: MouthWeights): { key: CartoonKey; value: number }[] {
-  return CARTOON_KEYS.map((key) => ({ key, value: weights[key] })).filter((item) => item.value > 0)
+export function nonzeroWeights(weights: MouthWeights): { key: VisemeKey; value: number }[] {
+  return VISEME_KEYS.map((key) => ({ key, value: weights[key] })).filter((item) => item.value > 0)
 }
 
 export function toKeyframes(frames: MouthPose[], fps: number): Keyframe[] {
@@ -212,24 +153,15 @@ export function toKeyframes(frames: MouthPose[], fps: number): Keyframe[] {
   return keys
 }
 
-export function frameIndex(fps: number, time: number, length: number): number {
-  if (length <= 0) return 0
-  return Math.min(length - 1, Math.max(0, Math.floor(time * fps)))
-}
-
 export function poseAt(frames: MouthPose[], fps: number, time: number): MouthPose {
   if (frames.length === 0) return { ...REST_POSE, weights: emptyWeights() }
-  const pose = frames[frameIndex(fps, time, frames.length)] ?? REST_POSE
+  const i = Math.min(frames.length - 1, Math.max(0, Math.floor(time * fps)))
+  const pose = frames[i] ?? REST_POSE
   return {
     talking: pose.talking,
     primary: pose.primary,
     weights: copyWeights(pose.weights),
   }
-}
-
-export function letterAt(letters: string[], fps: number, time: number): string {
-  if (letters.length === 0) return ''
-  return letters[frameIndex(fps, time, letters.length)] ?? ''
 }
 
 export function visemeAt(frames: MouthPose[], fps: number, time: number): number {
@@ -260,62 +192,18 @@ export function smoothVisemes(frames: number[], minHold: number): number[] {
   return out
 }
 
-export function toCartoonId(id: number, neighborVowel = 10): number {
-  if (id <= 0) return 0
-  if (id === 5 || id === 2) return 5
-  if (id === 7) return 7
-  if (id === 8) return 8
-  if (id === 9 || id === 1 || id === 3) return 9
-  if (id === 10) return 10
-  return VOWEL_IDS.has(neighborVowel) ? neighborVowel : 10
-}
+type Run = { start: number; end: number; id: number }
 
-export function cartoonizeFrames(ids: number[]): number[] {
-  const neighbors = neighborVowels(ids)
-  return ids.map((id, i) => toCartoonId(id, neighbors[i] ?? 10))
-}
-
-function neighborVowels(ids: number[]): number[] {
-  const n = ids.length
-  const prev = new Array<number>(n).fill(0)
-  const next = new Array<number>(n).fill(0)
-  let vowel = 0
-  for (let i = 0; i < n; i++) {
-    const id = ids[i] ?? 0
-    if (VOWEL_IDS.has(id)) vowel = id
-    else if (id === 0) vowel = 0
-    prev[i] = vowel
+function runsOf(ids: number[]): Run[] {
+  const runs: Run[] = []
+  let i = 0
+  while (i < ids.length) {
+    let j = i + 1
+    while (j < ids.length && ids[j] === ids[i]) j++
+    runs.push({ start: i, end: j, id: ids[i] ?? 0 })
+    i = j
   }
-  vowel = 0
-  for (let i = n - 1; i >= 0; i--) {
-    const id = ids[i] ?? 0
-    if (VOWEL_IDS.has(id)) vowel = id
-    else if (id === 0) vowel = 0
-    next[i] = vowel
-  }
-  return ids.map((_, i) => prev[i] || next[i] || 0)
-}
-
-function poseFromSlots(
-  currentId: number,
-  currentValue: number,
-  memoryId: number,
-  memoryValue: number,
-): MouthPose {
-  const weights = emptyWeights()
-  const memKey = visemeKey(memoryId)
-  const curKey = visemeKey(currentId)
-  if (memKey && memoryId > 0) weights[memKey] = clampWeight(memoryValue)
-  if (curKey && currentId > 0) {
-    const value = clampWeight(currentValue)
-    weights[curKey] = currentId === memoryId ? Math.max(weights[curKey], value) : value
-  }
-  const talking = currentId > 0 || (memoryId > 0 && memoryValue > 0)
-  return {
-    talking,
-    primary: currentId > 0 ? currentId : memoryId > 0 ? memoryId : 0,
-    weights,
-  }
+  return runs
 }
 
 export function blendMouthFrames(
@@ -324,40 +212,63 @@ export function blendMouthFrames(
   fadeFrames = FADE_FRAMES,
 ): MouthPose[] {
   const n = ids.length
-  const rise = Math.max(1, fadeFrames)
-  let currentId = 0
-  let currentValue = 0
-  let memoryId = 0
-  let memoryValue = 0
-  let restHold = 0
   const out: MouthPose[] = new Array(n)
+  const fade = Math.max(1, fadeFrames)
+  const runs = runsOf(ids)
+  const runAt = new Array<number>(n).fill(0)
+
+  for (let r = 0; r < runs.length; r++) {
+    const run = runs[r]!
+    for (let f = run.start; f < run.end; f++) runAt[f] = r
+  }
 
   for (let f = 0; f < n; f++) {
-    const id = toCartoonId(ids[f] ?? 0)
-    const strength = id > 0 ? (strengths[f] ?? 0) : 0
+    const run = runs[runAt[f]!]!
+    const prev = runs[runAt[f]! - 1]
+    const next = runs[runAt[f]! + 1]
+    const weights = emptyWeights()
+    const id = run.id
+    const strength = strengths[f] ?? 0
+    const into = f - run.start
+    const remain = run.end - f
 
-    if (id !== currentId) {
-      if (currentId > 0) {
-        memoryId = currentId
-        memoryValue = currentValue
+    if (id === 0 || strength <= 0) {
+      if (prev && prev.id > 0 && into < fade) {
+        const prevKey = visemeKey(prev.id)
+        const prevStrength = strengths[prev.end - 1] ?? 0
+        if (prevKey) {
+          weights[prevKey] = clampWeight(prevStrength * (1 - (into + 1) / fade))
+        }
       }
-      currentId = id
-      currentValue = 0
-      restHold = 0
+      const fading = nonzeroWeights(weights).length > 0
+      out[f] = {
+        talking: fading,
+        primary: dominantViseme(weights),
+        weights,
+      }
+      continue
     }
 
-    if (currentId === 0) {
-      currentValue = 0
-      restHold += 1
-      if (restHold > rise + 2) {
-        memoryId = 0
-        memoryValue = 0
+    const key = visemeKey(id)
+    let arrive = 1
+    if (prev && prev.id > 0 && into < fade) arrive = (into + 1) / fade
+    let amount = strength * arrive
+    if (next && next.id === 0 && remain <= fade) amount *= remain / fade
+    if (key) weights[key] = clampWeight(amount)
+
+    if (prev && prev.id > 0 && into < fade) {
+      const prevKey = visemeKey(prev.id)
+      const prevStrength = strengths[prev.end - 1] ?? strength
+      if (prevKey) {
+        weights[prevKey] = clampWeight(prevStrength * (1 - arrive))
       }
-    } else {
-      currentValue = strength
     }
 
-    out[f] = poseFromSlots(currentId, currentValue, memoryId, memoryValue)
+    out[f] = {
+      talking: true,
+      primary: dominantViseme(weights) || id,
+      weights,
+    }
   }
 
   return stabilizeTalking(out, 6)

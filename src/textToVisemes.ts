@@ -1,4 +1,11 @@
-import { VOWEL_IDS, type Language } from './visemes'
+import {
+  FPS,
+  VOWEL_IDS,
+  blendMouthFrames,
+  visemeLabel,
+  type Language,
+  type MouthPose,
+} from './visemes'
 
 export type PhoneToken = { v: number; w: number; g: string }
 
@@ -14,16 +21,16 @@ const WEIGHT = {
   space: 0.55,
 } as const
 
-const LEAD_INHERIT = new Set(['h', 'y'])
+const LEAD_INHERIT = new Set(['y'])
 const HOLD_INHERIT = new Set([
-  'l', 'r', 'n', 'd', 'g', 'k', 't', 's', 'z', 'x',
+  'l', 'r', 'n', 'd', 'g', 'k', 't', 'x',
   'ny', 'ng', 'kh', 'ck',
 ])
 
 const DIGRAPHS_ID: Record<string, PhoneToken> = {
   ny: { v: 10, w: WEIGHT.nasal, g: 'ny' },
   ng: { v: 10, w: WEIGHT.nasal, g: 'ng' },
-  sy: { v: 9, w: WEIGHT.fricative, g: 'sy' },
+  sy: { v: 3, w: WEIGHT.fricative, g: 'sy' },
   kh: { v: 10, w: WEIGHT.stop, g: 'kh' },
   ai: { v: 10, w: WEIGHT.vowel, g: 'ai' },
   au: { v: 8, w: WEIGHT.vowel, g: 'au' },
@@ -32,10 +39,10 @@ const DIGRAPHS_ID: Record<string, PhoneToken> = {
 }
 
 const DIGRAPHS_EN: Record<string, PhoneToken> = {
-  th: { v: 9, w: WEIGHT.fricative, g: 'th' },
-  ch: { v: 9, w: WEIGHT.fricative, g: 'ch' },
-  sh: { v: 9, w: WEIGHT.fricative, g: 'sh' },
-  zh: { v: 9, w: WEIGHT.fricative, g: 'zh' },
+  th: { v: 1, w: WEIGHT.fricative, g: 'th' },
+  ch: { v: 3, w: WEIGHT.fricative, g: 'ch' },
+  sh: { v: 3, w: WEIGHT.fricative, g: 'sh' },
+  zh: { v: 3, w: WEIGHT.fricative, g: 'zh' },
   ph: { v: 5, w: WEIGHT.fricative, g: 'ph' },
   wh: { v: 7, w: WEIGHT.glide, g: 'wh' },
   qu: { v: 7, w: WEIGHT.glide, g: 'qu' },
@@ -86,24 +93,23 @@ function charToken(ch: string, language: Language): PhoneToken | null {
     case 'q':
       return { v: 7, w: WEIGHT.glide, g: ch }
     case 'j':
-      return { v: 9, w: WEIGHT.fricative, g: ch }
+    case 'h':
+    case 's':
+    case 'z':
+      return { v: 3, w: ch === 'h' ? WEIGHT.h : WEIGHT.fricative, g: ch }
     case 'c':
       return language === 'id'
-        ? { v: 9, w: WEIGHT.fricative, g: ch }
-        : { v: 10, w: WEIGHT.stop, g: ch }
+        ? { v: 3, w: WEIGHT.fricative, g: ch }
+        : { v: 6, w: WEIGHT.stop, g: ch }
     case 'd':
     case 'g':
     case 'k':
     case 't':
     case 'n':
-    case 's':
-    case 'z':
     case 'x':
-      return { v: 10, w: ch === 'n' ? WEIGHT.nasal : ch === 's' || ch === 'z' || ch === 'x' ? WEIGHT.fricative : WEIGHT.stop, g: ch }
+      return { v: 6, w: ch === 'n' ? WEIGHT.nasal : WEIGHT.stop, g: ch }
     case 'y':
       return { v: 9, w: WEIGHT.glide, g: ch }
-    case 'h':
-      return { v: 10, w: WEIGHT.h, g: ch }
     default:
       return null
   }
@@ -151,7 +157,7 @@ function inheritNeutral(tokens: PhoneToken[]): PhoneToken[] {
   return out
 }
 
-export function transcriptToTokens(text: string, language: Language): PhoneToken[] {
+export function transcriptToTokens(text: string, language: Language, inherit = true): PhoneToken[] {
   const parts = text
     .trim()
     .split(/(\s+|[.,!?;:]+)/)
@@ -162,7 +168,8 @@ export function transcriptToTokens(text: string, language: Language): PhoneToken
     if (/^\s+$/.test(part) || /^[.,!?;:]+$/.test(part)) {
       tokens.push({ v: 0, w: WEIGHT.space, g: ' ' })
     } else {
-      tokens.push(...inheritNeutral(wordToTokens(part, language)))
+      const word = wordToTokens(part, language)
+      tokens.push(...(inherit ? inheritNeutral(word) : word))
     }
   }
   return tokens
@@ -234,4 +241,116 @@ export function makeSpeechMask(rms: number[], thresh: number, pad = 3): boolean[
   }
 
   return out
+}
+
+export type LetterClip = {
+  fps: number
+  duration: number
+  frames: MouthPose[]
+  letters: string[]
+  tokens: PhoneToken[]
+}
+
+const TEST_DIGRAPHS: Record<string, PhoneToken> = {
+  th: { v: 1, w: WEIGHT.fricative, g: 'th' },
+  ch: { v: 3, w: WEIGHT.fricative, g: 'ch' },
+  sh: { v: 3, w: WEIGHT.fricative, g: 'sh' },
+  ny: { v: 6, w: WEIGHT.nasal, g: 'ny' },
+  ng: { v: 6, w: WEIGHT.nasal, g: 'ng' },
+}
+
+function testCharToken(ch: string): PhoneToken | null {
+  switch (ch) {
+    case 'a':
+    case 'e':
+      return { v: 10, w: WEIGHT.vowel, g: ch }
+    case 'i':
+      return { v: 9, w: WEIGHT.vowel, g: ch }
+    case 'o':
+      return { v: 8, w: WEIGHT.vowel, g: ch }
+    case 'u':
+      return { v: 7, w: WEIGHT.vowel, g: ch }
+    case 'b':
+    case 'm':
+    case 'p':
+      return { v: 5, w: ch === 'm' ? WEIGHT.nasal : WEIGHT.stop, g: ch }
+    case 'f':
+    case 'v':
+      return { v: 2, w: WEIGHT.fricative, g: ch }
+    case 'l':
+      return { v: 4, w: WEIGHT.l, g: ch }
+    case 'r':
+      return { v: 11, w: WEIGHT.r, g: ch }
+    case 'w':
+    case 'q':
+      return { v: 7, w: WEIGHT.glide, g: ch }
+    case 'j':
+    case 'h':
+    case 's':
+    case 'z':
+      return { v: 3, w: ch === 'h' ? WEIGHT.h : WEIGHT.fricative, g: ch }
+    case 'c':
+    case 'd':
+    case 'g':
+    case 'k':
+    case 'n':
+    case 't':
+    case 'x':
+    case 'y':
+      return { v: 6, w: ch === 'n' ? WEIGHT.nasal : WEIGHT.stop, g: ch }
+    default:
+      return null
+  }
+}
+
+export function lettersToTestTokens(text: string, language: Language): PhoneToken[] {
+  const cleaned = text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+  const extra = language === 'id'
+    ? { ny: { v: 6, w: WEIGHT.nasal, g: 'ny' }, ng: { v: 6, w: WEIGHT.nasal, g: 'ng' }, sy: { v: 3, w: WEIGHT.fricative, g: 'sy' } }
+    : TEST_DIGRAPHS
+  const out: PhoneToken[] = []
+  let i = 0
+  while (i < cleaned.length) {
+    const two = cleaned.slice(i, i + 2)
+    const digraph = extra[two]
+    if (digraph) {
+      out.push({ ...digraph })
+      i += 2
+      continue
+    }
+    const token = testCharToken(cleaned[i] ?? '')
+    if (token) out.push(token)
+    i += 1
+  }
+  return out
+}
+
+export function tokenLabel(token: PhoneToken): string {
+  if (token.v === 0) return 'spasi'
+  return visemeLabel(token.v)
+}
+
+export function textToLetterClip(text: string, language: Language): LetterClip | null {
+  const spoken = lettersToTestTokens(text, language)
+  if (spoken.length === 0) return null
+
+  const fps = FPS
+  const framesPerWeight = 7
+  const nFrames = Math.max(18, Math.round(spoken.reduce((sum, token) => sum + token.w, 0) * framesPerWeight))
+  const stretched = stretchTokensToSpeech(spoken, nFrames, new Array(nFrames).fill(true))
+  const strengths = stretched.ids.map((id) => {
+    if (id <= 0) return 0
+    return VOWEL_IDS.has(id) ? 96 : 72
+  })
+
+  return {
+    fps,
+    duration: nFrames / fps,
+    frames: blendMouthFrames(stretched.ids, strengths),
+    letters: stretched.letters,
+    tokens: spoken,
+  }
 }

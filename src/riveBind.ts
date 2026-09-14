@@ -7,7 +7,6 @@ import type {
 import {
   REST_POSE,
   TALKING_PROPERTY,
-  CARTOON_KEYS,
   VISEME_KEYS,
   emptyWeights,
   poseSignature,
@@ -120,9 +119,7 @@ export function bindMouth(rive: Rive): BindResult {
   for (const key of VISEME_KEYS) {
     const prop = instance.number(key)
     if (prop) numbers[key] = prop
-  }
-  for (const key of CARTOON_KEYS) {
-    if (!numbers[key]) missing.push(key)
+    else missing.push(key)
   }
 
   const binding: RiveMouthBinding = {
@@ -140,7 +137,7 @@ export function bindMouth(rive: Rive): BindResult {
   return {
     binding,
     dump: missing.length === 0
-      ? `${binding.artboard} / ${binding.viewModelName} · TALKING + 5 cartoon viseme`
+      ? `${binding.artboard} / ${binding.viewModelName} · TALKING + ${VISEME_KEYS.length} viseme`
       : `${binding.viewModelName} terpasang, kurang: ${missing.join(', ')}${found ? ` · ada: ${found}` : ''}`,
   }
 }

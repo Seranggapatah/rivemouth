@@ -78,7 +78,7 @@ h2 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; margin-
 .drop input { display: none; }
 .field { display: grid; gap: 6px; margin-bottom: 12px; }
 .field span, .seg span { color: var(--muted); font-size: 12px; }
-textarea, select, input[type='range'] {
+textarea, select, input[type='range'], input[type='text'] {
   width: 100%;
   background: #101114;
   border: 1px solid var(--line);
@@ -107,7 +107,6 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .hint.ok { color: var(--accent); }
-.hint.warn { color: #e2b56a; }
 .error { color: var(--danger); font-size: 13px; }
 .dump {
   margin: 12px 0 0;
@@ -211,16 +210,45 @@ code {
 
 .transport { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; margin-top: 16px; }
 .timeline { width: 100%; height: 36px; margin-top: 12px; cursor: pointer; display: block; }
-.debug-strip { height: 78px; }
-.lead {
-  display: grid;
-  gap: 4px;
-  margin-top: 12px;
-}
-.lead span { color: var(--muted); font-size: 12px; }
 .export { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
 
-.legend ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.now-letter {
+  margin: 4px 0 0;
+  color: var(--accent);
+  font-size: 12px;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+}
+
+.letter-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.letter-chips button {
+  display: grid;
+  gap: 2px;
+  min-width: 44px;
+  padding: 6px 8px;
+  text-align: center;
+}
+.letter-chips b {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 16px;
+  color: var(--head);
+  text-transform: uppercase;
+}
+.letter-chips span {
+  font-size: 10px;
+  color: var(--muted);
+}
+.letter-chips button.active {
+  border-color: var(--accent-2);
+}
+.letter-chips button.active b,
+.letter-chips button.active span { color: var(--accent); }
 .legend button {
   width: 100%;
   display: flex;

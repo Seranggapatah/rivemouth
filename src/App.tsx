@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeVoice } from './analyze'
+import { textToLetterClip, tokenLabel } from './textToVisemes'
 import { MouthPreview } from './MouthPreview'
 import mouthRiv from './assets/mouth.riv?url'
 import {
@@ -15,13 +16,12 @@ import {
 import {
   REST_POSE,
   TALKING_PROPERTY,
-  CARTOON_KEYS,
-  CARTOON_VISEMES,
-  VISEME_COLOR,
-  letterAt,
+  VISEME_KEYS,
+  VISEMES,
+  VOWEL_IDS,
   nonzeroWeights,
   poseAt,
-  rememberPose,
+  soloPose,
   visemeLabel,
   type Language,
   type MouthPose,
@@ -52,11 +52,13 @@ export default function App() {
   const [pose, setPose] = useState<MouthPose>(() => restPose())
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
-  const [leadMs, setLeadMs] = useState(60)
   const [copied, setCopied] = useState<string | null>(null)
   const [binding, setBinding] = useState<RiveMouthBinding | null>(null)
   const [bindError, setBindError] = useState<string | null>(null)
   const [vmStatus, setVmStatus] = useState<string | null>(null)
+  const [testText, setTestText] = useState('hello')
+  const [testPlaying, setTestPlaying] = useState(false)
+  const [testLetter, setTestLetter] = useState('')
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -64,9 +66,10 @@ export default function App() {
   const bindingRef = useRef<RiveMouthBinding | null>(null)
   const timelineRef = useRef<Timeline | null>(null)
   const poseRef = useRef<MouthPose>(restPose())
-  const leadMsRef = useRef(60)
   const rafRef = useRef<number>(0)
   const loopRef = useRef<() => void>(() => {})
+  const testRafRef = useRef<number>(0)
+  const testStopRef = useRef(false)
 
   useEffect(() => {
     poseRef.current = pose
@@ -76,10 +79,6 @@ export default function App() {
     bindingRef.current = binding
     applyMouth(binding, pose)
   }, [binding, pose])
-
-  useEffect(() => {
-    leadMsRef.current = leadMs
-  }, [leadMs])
 
   useEffect(() => {
     timelineRef.current = timeline
@@ -152,9 +151,8 @@ export default function App() {
       const clip = timelineRef.current
       if (!audio || !clip) return
       const t = audio.currentTime
-      const mouthT = t + leadMsRef.current / 1000
       setTime(t)
-      pushPose(poseAt(clip.frames, clip.fps, mouthT))
+      pushPose(poseAt(clip.frames, clip.fps, t))
       if (!audio.paused && !audio.ended) {
         rafRef.current = requestAnimationFrame(() => loopRef.current())
       } else {
@@ -165,7 +163,10 @@ export default function App() {
   }, [pushPose])
 
   useEffect(() => {
-    return () => cancelAnimationFrame(rafRef.current)
+    return () => {
+      cancelAnimationFrame(rafRef.current)
+      cancelAnimationFrame(testRafRef.current)
+    }
   }, [])
 
   function onPickAudio(file: File | null) {
@@ -200,11 +201,53 @@ export default function App() {
     }
   }
 
+  function stopLetterTest(reset = true) {
+    testStopRef.current = true
+    cancelAnimationFrame(testRafRef.current)
+    setTestPlaying(false)
+    setTestLetter('')
+    if (reset) pushPose(restPose())
+  }
+
+  function playLetterTest() {
+    const clip = textToLetterClip(testText, language)
+    if (!clip) return
+    const audio = audioRef.current
+    if (audio && !audio.paused) {
+      audio.pause()
+      setPlaying(false)
+      cancelAnimationFrame(rafRef.current)
+    }
+
+    testStopRef.current = false
+    setTestPlaying(true)
+    const start = performance.now()
+
+    const tick = (now: number) => {
+      if (testStopRef.current) return
+      const t = (now - start) / 1000
+      const i = Math.min(clip.frames.length - 1, Math.max(0, Math.floor(t * clip.fps)))
+      const next = clip.frames[i] ?? restPose()
+      pushPose(i === 0 ? { ...next, talking: true } : next)
+      setTestLetter(clip.letters[i] ?? '')
+      if (t < clip.duration) {
+        testRafRef.current = requestAnimationFrame(tick)
+        return
+      }
+      setTestPlaying(false)
+      setTestLetter('')
+      pushPose(restPose())
+    }
+
+    testRafRef.current = requestAnimationFrame(tick)
+  }
+
   function togglePlay() {
     const audio = audioRef.current
     if (!audio || !timeline) return
+    stopLetterTest(false)
     if (audio.paused) {
-      pushPose({ ...poseAt(timeline.frames, timeline.fps, audio.currentTime + leadMs / 1000), talking: true })
+      pushPose({ ...poseAt(timeline.frames, timeline.fps, audio.currentTime), talking: true })
       void audio.play()
       setPlaying(true)
       rafRef.current = requestAnimationFrame(() => loopRef.current())
@@ -222,7 +265,7 @@ export default function App() {
     if (!audio || !clip) return
     audio.currentTime = next
     setTime(next)
-    pushPose(poseAt(clip.frames, clip.fps, next + leadMs / 1000))
+    pushPose(poseAt(clip.frames, clip.fps, next))
   }
 
   async function copyText(label: string, value: string) {
@@ -236,7 +279,7 @@ export default function App() {
     const payload = {
       fps: timeline.fps,
       duration: timeline.duration,
-      mapping: Object.fromEntries(CARTOON_VISEMES.filter((item) => item.key).map((item) => [item.key, item.label])),
+      mapping: Object.fromEntries(VISEMES.filter((item) => item.key).map((item) => [item.key, item.label])),
       frames: timeline.frames,
       keyframes: timeline.keyframes,
     }
@@ -260,7 +303,7 @@ const vm = rive.viewModelByName("${VIEW_MODEL_NAME}");
 const vmi = vm.defaultInstance() ?? vm.instance();
 rive.bindViewModelInstance(vmi);
 const talking = vmi.boolean("${TALKING_PROPERTY}");
-const visemes = { ${CARTOON_KEYS.map((key) => `${key}: vmi.number("${key}")`).join(', ')} };
+const visemes = { ${VISEME_KEYS.map((key) => `${key}: vmi.number("${key}")`).join(', ')} };
 function applyPose(pose) {
   talking.value = pose.talking;
   for (const [key, prop] of Object.entries(visemes)) prop.value = pose.weights[key] ?? 0;
@@ -273,16 +316,18 @@ function applyPose(pose) {
 
   const active = nonzeroWeights(pose.weights)
   const bound = Boolean(binding && binding.missing.length === 0)
+  const testClip = useMemo(() => textToLetterClip(testText, language), [testText, language])
 
   return (
     <div className="app">
       <header className="top">
         <div>
           <p className="eyebrow">Lipsinc</p>
-          <h1>Voice MP3 jadi 5 mulut kartun</h1>
+          <h1>Voice MP3 jadi blend mulut Rive</h1>
         </div>
         <p className="lede">
-          Set <code>{TALKING_PROPERTY}</code> true, lalu blend 5 bentuk kartun: BMP, AE, EE, O, QUW.
+          Set <code>{TALKING_PROPERTY}</code> true dulu, lalu kirim angka 0–100 ke viseme{' '}
+          <code>{VIEW_MODEL_NAME}</code>. Transisi seperti HELLO: CDGKN → AE → L → O.
         </p>
       </header>
 
@@ -307,17 +352,14 @@ function applyPose(pose) {
           </label>
 
           <label className="field">
-            <span>Teks yang diucapkan (penting untuk akurat)</span>
+            <span>Teks yang diucapkan (opsional, lebih akurat)</span>
             <textarea
               rows={4}
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
-              placeholder="Tulis persis yang diucapkan, contoh: halo semuanya, selamat datang"
+              placeholder="Contoh: halo semuanya, selamat datang"
             />
           </label>
-          {audioFile && !transcript.trim() ? (
-            <p className="hint warn">Tanpa teks, mulut hanya ditebak dari audio — biasanya kurang nyambung.</p>
-          ) : null}
 
           <div className="row">
             <label className="seg">
@@ -349,6 +391,58 @@ function applyPose(pose) {
           ) : (
             <p className="error">{bindError ?? `Memuat mouth.riv…`}</p>
           )}
+
+          <h2>3. Tes huruf</h2>
+          <label className="field">
+            <span>Ketik huruf atau kata, lalu ucapkan ke Rive</span>
+            <input
+              type="text"
+              value={testText}
+              onChange={(e) => setTestText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  if (testPlaying) stopLetterTest()
+                  else playLetterTest()
+                }
+              }}
+              placeholder="Contoh: hello"
+              autoComplete="off"
+              spellCheck={false}
+            />
+          </label>
+          <div className="row">
+            <button
+              type="button"
+              className="primary"
+              disabled={!testClip || status.kind === 'busy'}
+              onClick={() => (testPlaying ? stopLetterTest() : playLetterTest())}
+            >
+              {testPlaying ? 'Stop' : 'Ucapkan'}
+            </button>
+          </div>
+          {testClip ? (
+            <ol className="letter-chips">
+              {testClip.tokens.map((token, i) => (
+                <li key={`${token.g}-${i}`}>
+                  <button
+                    type="button"
+                    className={testLetter === token.g && testPlaying ? 'active' : ''}
+                    onClick={() => {
+                      stopLetterTest(false)
+                      pushPose(soloPose(token.v, VOWEL_IDS.has(token.v) ? 96 : 80))
+                      setTestLetter(token.g)
+                    }}
+                  >
+                    <b>{token.g}</b>
+                    <span>{tokenLabel(token)}</span>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="hint">Ketik huruf dulu, misalnya hello atau halo.</p>
+          )}
         </section>
 
         <section className="stage">
@@ -360,8 +454,9 @@ function applyPose(pose) {
               <p className={`talking-pill ${pose.talking ? 'on' : ''}`}>
                 {TALKING_PROPERTY} {pose.talking ? 'true' : 'false'}
               </p>
-              <p className="now-label">huruf / viseme</p>
-              <p className="now-number">{letterAt(timeline?.letters ?? [], timeline?.fps ?? 50, time + leadMs / 1000) || visemeLabel(pose.primary)}</p>
+              <p className="now-label">viseme aktif</p>
+              <p className="now-number">{testLetter ? testLetter.toUpperCase() : visemeLabel(pose.primary)}</p>
+              {testLetter ? <p className="now-letter">{visemeLabel(pose.primary)}</p> : null}
               <ul className="now-weights">
                 {active.length > 0 ? (
                   active.map((item) => (
@@ -407,34 +502,7 @@ function applyPose(pose) {
             />
           </div>
 
-          {timeline ? (
-            <label className="lead">
-              <span>Lead mulut {leadMs} ms</span>
-              <input
-                type="range"
-                min={-40}
-                max={160}
-                step={10}
-                value={leadMs}
-                onChange={(e) => {
-                  const next = Number(e.target.value)
-                  setLeadMs(next)
-                  if (timeline) pushPose(poseAt(timeline.frames, timeline.fps, time + next / 1000))
-                }}
-              />
-              <span className="hint">Mundur kalau mulut telat, maju kalau terlalu awal.</span>
-            </label>
-          ) : null}
-
-          {timeline ? <DebugStrip timeline={timeline} time={time} onSeek={seek} /> : null}
-          {timeline ? (
-            <p className="hint">
-              {timeline.usedTranscript ? 'Mode teks: huruf di-align ke energi suara.' : 'Mode tebakan audio.'}{' '}
-              Huruf sekarang: <code>{letterAt(timeline.letters, timeline.fps, time + leadMs / 1000) || '—'}</code>
-              {' · '}
-              {visemeLabel(pose.primary)}
-            </p>
-          ) : null}
+          {timeline ? <TimelineBar timeline={timeline} time={time} onSeek={seek} /> : null}
 
           {timeline ? (
             <div className="export">
@@ -455,10 +523,10 @@ function applyPose(pose) {
         </section>
 
         <section className="panel legend">
-          <h2>5 bentuk kartun</h2>
-          <p className="hint">Klik berurutan: pose lama tetap, pose baru dapat value. Klik ketiga: memori lama jadi 0.</p>
+          <h2>Viseme 0–100</h2>
+          <p className="hint">Klik untuk tes: TALKING true, viseme ini 100, yang lain 0.</p>
           <ol>
-            {CARTOON_VISEMES.map((item) => (
+            {VISEMES.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
@@ -471,10 +539,10 @@ function applyPose(pose) {
                         ? ''
                         : 'active'
                   }
-                  onClick={() => pushPose(item.id === 0 ? restPose() : rememberPose(pose, item.id, 100))}
+                  onClick={() => pushPose(item.id === 0 ? restPose() : soloPose(item.id, 100))}
                 >
                   <b>{item.key ?? '—'}</b>
-                  <span>{item.hint || item.label}</span>
+                  <span>{item.label}</span>
                   <em>{item.key ? pose.weights[item.key] : pose.talking ? 1 : 0}</em>
                 </button>
               </li>
@@ -486,7 +554,7 @@ function applyPose(pose) {
   )
 }
 
-function DebugStrip({
+function TimelineBar({
   timeline,
   time,
   onSeek,
@@ -496,85 +564,40 @@ function DebugStrip({
   onSeek: (t: number) => void
 }) {
   const width = 640
-  const duration = Math.max(timeline.duration, 0.01)
-  const peak = Math.max(...timeline.rms, 0.001)
-  const bars = 180
-  const rmsBars = new Array(bars).fill(0).map((_, i) => {
-    const start = Math.floor((i / bars) * timeline.rms.length)
-    const end = Math.max(start + 1, Math.floor(((i + 1) / bars) * timeline.rms.length))
-    let max = 0
-    for (let k = start; k < end; k++) max = Math.max(max, timeline.rms[k] ?? 0)
-    return max
-  })
-  const speechRuns: { x: number; w: number }[] = []
-  let runStart = -1
-  timeline.speech.forEach((spoken, i) => {
-    if (spoken && runStart < 0) runStart = i
-    if ((!spoken || i === timeline.speech.length - 1) && runStart >= 0) {
-      const end = spoken && i === timeline.speech.length - 1 ? i + 1 : i
-      speechRuns.push({
-        x: (runStart / Math.max(timeline.speech.length, 1)) * width,
-        w: ((end - runStart) / Math.max(timeline.speech.length, 1)) * width,
-      })
-      runStart = -1
-    }
-  })
-
-  function seekFromEvent(e: { currentTarget: SVGSVGElement; clientX: number }) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    const ratio = (e.clientX - rect.left) / rect.width
-    onSeek(ratio * timeline.duration)
-  }
-
-  const letterMarks: { x: number; g: string }[] = []
-  let prev = ''
-  timeline.letters.forEach((letter, i) => {
-    if (!letter || letter === prev || letter === ' ') return
-    prev = letter
-    letterMarks.push({ x: (i / Math.max(timeline.letters.length, 1)) * width, g: letter })
-  })
 
   return (
     <svg
-      className="timeline debug-strip"
-      viewBox={`0 0 ${width} 78`}
+      className="timeline"
+      viewBox={`0 0 ${width} 36`}
       role="slider"
-      aria-label="Debug timeline viseme"
-      onClick={seekFromEvent}
+      aria-label="Timeline viseme"
+      onClick={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        const ratio = (e.clientX - rect.left) / rect.width
+        onSeek(ratio * timeline.duration)
+      }}
     >
-      {speechRuns.map((run, i) => (
-        <rect key={`s-${i}`} x={run.x} y={0} width={Math.max(run.w, 1)} height={78} fill="#1b2438" />
-      ))}
-      {rmsBars.map((value, i) => {
-        const x = (i / bars) * width
-        const h = Math.max(1, (value / peak) * 28)
-        return <rect key={`r-${i}`} x={x} y={34 - h} width={Math.max(width / bars, 1)} height={h} fill="#4a5570" />
-      })}
       {timeline.keyframes.map((key, i) => {
         const next = timeline.keyframes[i + 1]?.t ?? timeline.duration
-        const x = (key.t / duration) * width
-        const w = Math.max(1, ((next - key.t) / duration) * width)
+        const x = (key.t / timeline.duration) * width
+        const w = Math.max(1, ((next - key.t) / timeline.duration) * width)
+        const shade = 18 + (key.v / 11) * 28
         return (
           <rect
             key={`${key.t}-${key.v}-${i}`}
             x={x}
-            y={40}
+            y={8}
             width={w}
-            height={22}
-            fill={VISEME_COLOR[key.v] ?? '#2a2d36'}
+            height={20}
+            fill={`hsl(228 18% ${shade}%)`}
           />
         )
       })}
-      {letterMarks.map((mark, i) => (
-        <text key={`${mark.g}-${i}`} x={mark.x + 2} y={74} fill="#c9d0de" fontSize="8">
-          {mark.g}
-        </text>
-      ))}
       <rect
-        x={(time / duration) * width}
-        y={0}
+        x={(time / Math.max(timeline.duration, 0.01)) * width}
+        y={4}
         width={2}
-        height={78}
+        height={28}
         fill="#d7e0ff"
       />
     </svg>

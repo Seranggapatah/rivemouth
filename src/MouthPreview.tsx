@@ -21,7 +21,7 @@ type Props = {
 
 export function MouthPreview({ viseme }: Props) {
   const d = LIPS[viseme] ?? LIPS[0]!
-  const open = viseme === 8 || viseme === 10 || viseme === 7 || viseme === 9
+  const open = viseme === 8 || viseme === 10 || viseme === 7
 
   return (
     <div className="mouth-card">
