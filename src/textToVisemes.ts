@@ -1,117 +1,121 @@
-import type { Language } from './visemes'
+import { VOWEL_IDS, type Language } from './visemes'
 
-type Token = { v: number; w: number }
+export type PhoneToken = { v: number; w: number; g: string }
 
 const WEIGHT = {
-  vowel: 2.2,
-  r: 1.45,
-  l: 1.3,
-  nasal: 1.1,
-  fricative: 1.15,
-  stop: 0.75,
-  glide: 0.9,
-  h: 0.45,
-  space: 1.55,
+  vowel: 2.35,
+  r: 1.15,
+  l: 1.05,
+  nasal: 0.85,
+  fricative: 0.9,
+  stop: 0.55,
+  glide: 0.8,
+  h: 0.5,
+  space: 0.55,
 } as const
 
-const DIGRAPHS_ID: Record<string, Token> = {
-  ny: { v: 6, w: WEIGHT.nasal },
-  ng: { v: 6, w: WEIGHT.nasal },
-  sy: { v: 3, w: WEIGHT.fricative },
-  kh: { v: 6, w: WEIGHT.fricative },
-  ai: { v: 10, w: WEIGHT.vowel },
-  au: { v: 10, w: WEIGHT.vowel },
-  oi: { v: 8, w: WEIGHT.vowel },
-  ei: { v: 9, w: WEIGHT.vowel },
+const LEAD_INHERIT = new Set(['h', 'y'])
+const HOLD_INHERIT = new Set([
+  'l', 'r', 'n', 'd', 'g', 'k', 't', 's', 'z', 'x',
+  'ny', 'ng', 'kh', 'ck',
+])
+
+const DIGRAPHS_ID: Record<string, PhoneToken> = {
+  ny: { v: 10, w: WEIGHT.nasal, g: 'ny' },
+  ng: { v: 10, w: WEIGHT.nasal, g: 'ng' },
+  sy: { v: 9, w: WEIGHT.fricative, g: 'sy' },
+  kh: { v: 10, w: WEIGHT.stop, g: 'kh' },
+  ai: { v: 10, w: WEIGHT.vowel, g: 'ai' },
+  au: { v: 8, w: WEIGHT.vowel, g: 'au' },
+  oi: { v: 8, w: WEIGHT.vowel, g: 'oi' },
+  ei: { v: 9, w: WEIGHT.vowel, g: 'ei' },
 }
 
-const DIGRAPHS_EN: Record<string, Token> = {
-  th: { v: 1, w: WEIGHT.fricative },
-  ch: { v: 3, w: WEIGHT.fricative },
-  sh: { v: 3, w: WEIGHT.fricative },
-  zh: { v: 3, w: WEIGHT.fricative },
-  ph: { v: 2, w: WEIGHT.fricative },
-  wh: { v: 7, w: WEIGHT.glide },
-  qu: { v: 7, w: WEIGHT.glide },
-  ng: { v: 6, w: WEIGHT.nasal },
-  ck: { v: 6, w: WEIGHT.stop },
-  ee: { v: 9, w: WEIGHT.vowel },
-  ea: { v: 9, w: WEIGHT.vowel },
-  ie: { v: 9, w: WEIGHT.vowel },
-  oo: { v: 7, w: WEIGHT.vowel },
-  ou: { v: 8, w: WEIGHT.vowel },
-  ow: { v: 8, w: WEIGHT.vowel },
-  oi: { v: 8, w: WEIGHT.vowel },
-  oy: { v: 8, w: WEIGHT.vowel },
-  ai: { v: 10, w: WEIGHT.vowel },
-  ay: { v: 10, w: WEIGHT.vowel },
-  aw: { v: 10, w: WEIGHT.vowel },
-  au: { v: 10, w: WEIGHT.vowel },
-  er: { v: 11, w: WEIGHT.r },
-  ir: { v: 11, w: WEIGHT.r },
-  ur: { v: 11, w: WEIGHT.r },
-  ar: { v: 10, w: WEIGHT.vowel },
-  or: { v: 8, w: WEIGHT.vowel },
+const DIGRAPHS_EN: Record<string, PhoneToken> = {
+  th: { v: 9, w: WEIGHT.fricative, g: 'th' },
+  ch: { v: 9, w: WEIGHT.fricative, g: 'ch' },
+  sh: { v: 9, w: WEIGHT.fricative, g: 'sh' },
+  zh: { v: 9, w: WEIGHT.fricative, g: 'zh' },
+  ph: { v: 5, w: WEIGHT.fricative, g: 'ph' },
+  wh: { v: 7, w: WEIGHT.glide, g: 'wh' },
+  qu: { v: 7, w: WEIGHT.glide, g: 'qu' },
+  ng: { v: 10, w: WEIGHT.nasal, g: 'ng' },
+  ck: { v: 10, w: WEIGHT.stop, g: 'ck' },
+  ee: { v: 9, w: WEIGHT.vowel, g: 'ee' },
+  ea: { v: 9, w: WEIGHT.vowel, g: 'ea' },
+  ie: { v: 9, w: WEIGHT.vowel, g: 'ie' },
+  oo: { v: 7, w: WEIGHT.vowel, g: 'oo' },
+  ou: { v: 8, w: WEIGHT.vowel, g: 'ou' },
+  ow: { v: 8, w: WEIGHT.vowel, g: 'ow' },
+  oi: { v: 8, w: WEIGHT.vowel, g: 'oi' },
+  oy: { v: 8, w: WEIGHT.vowel, g: 'oy' },
+  ai: { v: 10, w: WEIGHT.vowel, g: 'ai' },
+  ay: { v: 10, w: WEIGHT.vowel, g: 'ay' },
+  aw: { v: 10, w: WEIGHT.vowel, g: 'aw' },
+  au: { v: 8, w: WEIGHT.vowel, g: 'au' },
+  er: { v: 10, w: WEIGHT.r, g: 'er' },
+  ir: { v: 10, w: WEIGHT.r, g: 'ir' },
+  ur: { v: 10, w: WEIGHT.r, g: 'ur' },
+  ar: { v: 10, w: WEIGHT.vowel, g: 'ar' },
+  or: { v: 8, w: WEIGHT.vowel, g: 'or' },
 }
 
-function charToken(ch: string, language: Language): Token | null {
+function charToken(ch: string, language: Language): PhoneToken | null {
   switch (ch) {
     case 'a':
-      return { v: 10, w: WEIGHT.vowel }
+      return { v: 10, w: WEIGHT.vowel, g: ch }
     case 'e':
-      return { v: 10, w: WEIGHT.vowel }
+      return { v: 10, w: WEIGHT.vowel, g: ch }
     case 'i':
-      return { v: 9, w: WEIGHT.vowel }
+      return { v: 9, w: WEIGHT.vowel, g: ch }
     case 'o':
-      return { v: 8, w: WEIGHT.vowel }
+      return { v: 8, w: WEIGHT.vowel, g: ch }
     case 'u':
-      return { v: 7, w: WEIGHT.vowel }
+      return { v: 7, w: WEIGHT.vowel, g: ch }
     case 'b':
     case 'm':
     case 'p':
-      return { v: 5, w: ch === 'm' ? WEIGHT.nasal : WEIGHT.stop }
     case 'f':
     case 'v':
-      return { v: 2, w: WEIGHT.fricative }
+      return { v: 5, w: ch === 'm' ? WEIGHT.nasal : ch === 'f' || ch === 'v' ? WEIGHT.fricative : WEIGHT.stop, g: ch }
     case 'l':
-      return { v: 4, w: WEIGHT.l }
+      return { v: 10, w: WEIGHT.l, g: ch }
     case 'r':
-      return { v: 11, w: WEIGHT.r }
+      return { v: 10, w: WEIGHT.r, g: ch }
     case 'w':
     case 'q':
-      return { v: 7, w: WEIGHT.glide }
+      return { v: 7, w: WEIGHT.glide, g: ch }
     case 'j':
-      return { v: 3, w: WEIGHT.fricative }
+      return { v: 9, w: WEIGHT.fricative, g: ch }
     case 'c':
       return language === 'id'
-        ? { v: 3, w: WEIGHT.fricative }
-        : { v: 6, w: WEIGHT.stop }
+        ? { v: 9, w: WEIGHT.fricative, g: ch }
+        : { v: 10, w: WEIGHT.stop, g: ch }
     case 'd':
     case 'g':
     case 'k':
     case 't':
-      return { v: 6, w: WEIGHT.stop }
     case 'n':
-      return { v: 6, w: WEIGHT.nasal }
     case 's':
     case 'z':
     case 'x':
+      return { v: 10, w: ch === 'n' ? WEIGHT.nasal : ch === 's' || ch === 'z' || ch === 'x' ? WEIGHT.fricative : WEIGHT.stop, g: ch }
     case 'y':
-      return { v: 6, w: ch === 'y' ? WEIGHT.glide : WEIGHT.fricative }
+      return { v: 9, w: WEIGHT.glide, g: ch }
     case 'h':
-      return { v: 6, w: WEIGHT.h }
+      return { v: 10, w: WEIGHT.h, g: ch }
     default:
       return null
   }
 }
 
-function wordToTokens(word: string, language: Language): Token[] {
+function wordToTokens(word: string, language: Language): PhoneToken[] {
   const cleaned = word
     .toLowerCase()
     .normalize('NFD')
     .replace(/\p{M}/gu, '')
   const digraphs = language === 'id' ? DIGRAPHS_ID : DIGRAPHS_EN
-  const out: Token[] = []
+  const out: PhoneToken[] = []
   let i = 0
 
   while (i < cleaned.length) {
@@ -128,37 +132,106 @@ function wordToTokens(word: string, language: Language): Token[] {
     i += 1
   }
 
-  return out.length > 0 ? out : [{ v: 10, w: WEIGHT.vowel }]
+  return out.length > 0 ? out : [{ v: 10, w: WEIGHT.vowel, g: word || 'a' }]
 }
 
-export function transcriptToTokens(text: string, language: Language): Token[] {
+function inheritNeutral(tokens: PhoneToken[]): PhoneToken[] {
+  const out = tokens.map((token) => ({ ...token }))
+  for (let i = 0; i < out.length; i++) {
+    const token = out[i]
+    if (!token) continue
+    const lead = LEAD_INHERIT.has(token.g)
+    const hold = HOLD_INHERIT.has(token.g)
+    if (!lead && !hold) continue
+    const next = out.slice(i + 1).find((item) => VOWEL_IDS.has(item.v))
+    const prev = [...out.slice(0, i)].reverse().find((item) => VOWEL_IDS.has(item.v))
+    const vowel = lead ? next ?? prev : prev ?? next
+    if (vowel) token.v = vowel.v
+  }
+  return out
+}
+
+export function transcriptToTokens(text: string, language: Language): PhoneToken[] {
   const parts = text
     .trim()
     .split(/(\s+|[.,!?;:]+)/)
     .filter((p) => p.length > 0)
 
-  const tokens: Token[] = []
+  const tokens: PhoneToken[] = []
   for (const part of parts) {
     if (/^\s+$/.test(part) || /^[.,!?;:]+$/.test(part)) {
-      tokens.push({ v: 0, w: WEIGHT.space })
+      tokens.push({ v: 0, w: WEIGHT.space, g: ' ' })
     } else {
-      tokens.push(...wordToTokens(part, language))
+      tokens.push(...inheritNeutral(wordToTokens(part, language)))
     }
   }
   return tokens
 }
 
-export function stretchTokens(tokens: Token[], nFrames: number): number[] {
-  const frames = new Array<number>(nFrames).fill(0)
-  if (tokens.length === 0 || nFrames === 0) return frames
+export function stretchTokens(tokens: PhoneToken[], nFrames: number): number[] {
+  return stretchTokensToSpeech(
+    tokens,
+    nFrames,
+    new Array(nFrames).fill(true),
+  ).ids
+}
 
+export function stretchTokensToSpeech(
+  tokens: PhoneToken[],
+  nFrames: number,
+  speech: boolean[],
+): { ids: number[]; letters: string[] } {
+  const ids = new Array<number>(nFrames).fill(0)
+  const letters = new Array<string>(nFrames).fill('')
+  if (tokens.length === 0 || nFrames === 0) return { ids, letters }
+
+  const spoken: number[] = []
+  for (let i = 0; i < nFrames; i++) {
+    if (speech[i]) spoken.push(i)
+  }
+  const slots = spoken.length > 8 ? spoken : Array.from({ length: nFrames }, (_, i) => i)
   const total = tokens.reduce((sum, t) => sum + t.w, 0) || 1
   let acc = 0
+
   for (const token of tokens) {
-    const start = Math.floor((acc / total) * nFrames)
+    const start = Math.floor((acc / total) * slots.length)
     acc += token.w
-    const end = Math.max(start + 1, Math.floor((acc / total) * nFrames))
-    for (let i = start; i < end && i < nFrames; i++) frames[i] = token.v
+    const end = Math.max(start + 1, Math.floor((acc / total) * slots.length))
+    for (let k = start; k < end && k < slots.length; k++) {
+      const frame = slots[k]!
+      ids[frame] = token.v
+      letters[frame] = token.g
+    }
   }
-  return frames
+
+  return { ids, letters }
+}
+
+export function makeSpeechMask(rms: number[], thresh: number, pad = 3): boolean[] {
+  const n = rms.length
+  const raw = rms.map((value) => value >= thresh * 0.72)
+  const out = raw.slice()
+
+  for (let i = 0; i < n; i++) {
+    if (!raw[i]) continue
+    const a = Math.max(0, i - pad)
+    const b = Math.min(n, i + pad + 1)
+    for (let k = a; k < b; k++) out[k] = true
+  }
+
+  let i = 0
+  while (i < n) {
+    if (out[i]) {
+      i += 1
+      continue
+    }
+    let j = i + 1
+    while (j < n && !out[j]) j++
+    if (i > 0 && j < n && j - i <= 6) {
+      for (let k = i; k < j; k++) out[k] = true
+    }
+    i = j
+  }
+
+  return out
 }

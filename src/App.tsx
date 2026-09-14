@@ -3,21 +3,28 @@ import { analyzeVoice } from './analyze'
 import { MouthPreview } from './MouthPreview'
 import mouthRiv from './assets/mouth.riv?url'
 import {
-  applyViseme,
-  applyVisemeToRive,
-  bindNumberProperty,
+  applyMouth,
+  applyMouthToRive,
+  bindMouth,
   createRive,
   ARTBOARD_NAME,
-  NUMBER_PROPERTY,
   VIEW_MODEL_NAME,
-  type RiveNumberBinding,
+  type RiveMouthBinding,
   type RiveSession,
 } from './riveBind'
 import {
-  visemeAt,
+  REST_POSE,
+  TALKING_PROPERTY,
+  CARTOON_KEYS,
+  CARTOON_VISEMES,
+  VISEME_COLOR,
+  letterAt,
+  nonzeroWeights,
+  poseAt,
+  rememberPose,
   visemeLabel,
-  VISEMES,
   type Language,
+  type MouthPose,
   type Timeline,
 } from './visemes'
 import './App.css'
@@ -31,6 +38,10 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`
 }
 
+function restPose(): MouthPose {
+  return { talking: false, primary: 0, weights: { ...REST_POSE.weights } }
+}
+
 export default function App() {
   const [audioFile, setAudioFile] = useState<File | null>(null)
   const [audioUrl, setAudioUrl] = useState<string | null>(null)
@@ -38,31 +49,37 @@ export default function App() {
   const [language, setLanguage] = useState<Language>('id')
   const [timeline, setTimeline] = useState<Timeline | null>(null)
   const [status, setStatus] = useState<Status>({ kind: 'idle' })
-  const [current, setCurrent] = useState(0)
+  const [pose, setPose] = useState<MouthPose>(() => restPose())
   const [time, setTime] = useState(0)
   const [playing, setPlaying] = useState(false)
+  const [leadMs, setLeadMs] = useState(60)
   const [copied, setCopied] = useState<string | null>(null)
-  const [binding, setBinding] = useState<RiveNumberBinding | null>(null)
+  const [binding, setBinding] = useState<RiveMouthBinding | null>(null)
   const [bindError, setBindError] = useState<string | null>(null)
   const [vmStatus, setVmStatus] = useState<string | null>(null)
 
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const sessionRef = useRef<RiveSession | null>(null)
-  const bindingRef = useRef<RiveNumberBinding | null>(null)
+  const bindingRef = useRef<RiveMouthBinding | null>(null)
   const timelineRef = useRef<Timeline | null>(null)
-  const currentRef = useRef(0)
+  const poseRef = useRef<MouthPose>(restPose())
+  const leadMsRef = useRef(60)
   const rafRef = useRef<number>(0)
   const loopRef = useRef<() => void>(() => {})
 
   useEffect(() => {
-    currentRef.current = current
-  }, [current])
+    poseRef.current = pose
+  }, [pose])
 
   useEffect(() => {
     bindingRef.current = binding
-    applyViseme(binding, current)
-  }, [binding, current])
+    applyMouth(binding, pose)
+  }, [binding, pose])
+
+  useEffect(() => {
+    leadMsRef.current = leadMs
+  }, [leadMs])
 
   useEffect(() => {
     timelineRef.current = timeline
@@ -74,10 +91,10 @@ export default function App() {
     }
   }, [audioUrl])
 
-  const pushViseme = useCallback((value: number) => {
-    setCurrent(value)
-    applyViseme(bindingRef.current, value)
-    applyVisemeToRive(sessionRef.current?.rive, value)
+  const pushPose = useCallback((next: MouthPose) => {
+    setPose(next)
+    applyMouth(bindingRef.current, next)
+    applyMouthToRive(sessionRef.current?.rive, next)
   }, [])
 
   useEffect(() => {
@@ -94,12 +111,12 @@ export default function App() {
       (ready) => {
         if (cancelled) return
         try {
-          const found = bindNumberProperty(ready)
+          const found = bindMouth(ready)
           setBinding(found.binding)
           setVmStatus(found.dump)
-          setBindError(found.binding?.prop ? null : found.dump)
-          applyViseme(found.binding, currentRef.current)
-          applyVisemeToRive(ready, currentRef.current)
+          setBindError(found.binding && found.binding.missing.length === 0 ? null : found.dump)
+          applyMouth(found.binding, poseRef.current)
+          applyMouthToRive(ready, poseRef.current)
         } catch (error) {
           setBindError(error instanceof Error ? error.message : 'Gagal bind View Model')
         }
@@ -135,15 +152,17 @@ export default function App() {
       const clip = timelineRef.current
       if (!audio || !clip) return
       const t = audio.currentTime
+      const mouthT = t + leadMsRef.current / 1000
       setTime(t)
-      pushViseme(visemeAt(clip.frames, clip.fps, t))
+      pushPose(poseAt(clip.frames, clip.fps, mouthT))
       if (!audio.paused && !audio.ended) {
         rafRef.current = requestAnimationFrame(() => loopRef.current())
       } else {
         setPlaying(false)
+        if (audio.ended) pushPose(restPose())
       }
     }
-  }, [pushViseme])
+  }, [pushPose])
 
   useEffect(() => {
     return () => cancelAnimationFrame(rafRef.current)
@@ -156,7 +175,7 @@ export default function App() {
     setTimeline(null)
     setTime(0)
     setPlaying(false)
-    pushViseme(0)
+    pushPose(restPose())
   }
 
   async function convert() {
@@ -172,7 +191,7 @@ export default function App() {
       })
       setTimeline(result)
       setTime(0)
-      pushViseme(result.frames[0] ?? 0)
+      pushPose(result.frames[0] ?? restPose())
       if (audioRef.current) audioRef.current.currentTime = 0
       setStatus({ kind: 'idle' })
     } catch (error) {
@@ -185,6 +204,7 @@ export default function App() {
     const audio = audioRef.current
     if (!audio || !timeline) return
     if (audio.paused) {
+      pushPose({ ...poseAt(timeline.frames, timeline.fps, audio.currentTime + leadMs / 1000), talking: true })
       void audio.play()
       setPlaying(true)
       rafRef.current = requestAnimationFrame(() => loopRef.current())
@@ -192,6 +212,7 @@ export default function App() {
       audio.pause()
       setPlaying(false)
       cancelAnimationFrame(rafRef.current)
+      pushPose(restPose())
     }
   }
 
@@ -201,7 +222,7 @@ export default function App() {
     if (!audio || !clip) return
     audio.currentTime = next
     setTime(next)
-    pushViseme(visemeAt(clip.frames, clip.fps, next))
+    pushPose(poseAt(clip.frames, clip.fps, next + leadMs / 1000))
   }
 
   async function copyText(label: string, value: string) {
@@ -215,7 +236,7 @@ export default function App() {
     const payload = {
       fps: timeline.fps,
       duration: timeline.duration,
-      mapping: Object.fromEntries(VISEMES.map((v) => [v.id, v.label])),
+      mapping: Object.fromEntries(CARTOON_VISEMES.filter((item) => item.key).map((item) => [item.key, item.label])),
       frames: timeline.frames,
       keyframes: timeline.keyframes,
     }
@@ -229,30 +250,39 @@ export default function App() {
   }
 
   const snippet = timeline
-    ? `const visemes = ${JSON.stringify(timeline.frames)};
+    ? `const frames = ${JSON.stringify(timeline.frames)};
 const fps = ${timeline.fps};
-function visemeAt(t) {
-  const i = Math.min(visemes.length - 1, Math.max(0, Math.floor(t * fps)));
-  return visemes[i];
+function poseAt(t) {
+  const i = Math.min(frames.length - 1, Math.max(0, Math.floor(t * fps)));
+  return frames[i];
 }
 const vm = rive.viewModelByName("${VIEW_MODEL_NAME}");
 const vmi = vm.defaultInstance() ?? vm.instance();
 rive.bindViewModelInstance(vmi);
-const mouth = vmi.number("${NUMBER_PROPERTY}");
+const talking = vmi.boolean("${TALKING_PROPERTY}");
+const visemes = { ${CARTOON_KEYS.map((key) => `${key}: vmi.number("${key}")`).join(', ')} };
+function applyPose(pose) {
+  talking.value = pose.talking;
+  for (const [key, prop] of Object.entries(visemes)) prop.value = pose.weights[key] ?? 0;
+}
 // Di loop playback:
-// mouth.value = visemeAt(audio.currentTime);`
+// const pose = poseAt(audio.currentTime);
+// if (pose.talking) { talking.value = true; applyPose(pose); }
+// else { applyPose({ talking: false, weights: {} }); }`
     : ''
+
+  const active = nonzeroWeights(pose.weights)
+  const bound = Boolean(binding && binding.missing.length === 0)
 
   return (
     <div className="app">
       <header className="top">
         <div>
           <p className="eyebrow">Lipsinc</p>
-          <h1>Voice MP3 jadi angka mulut Rive</h1>
+          <h1>Voice MP3 jadi 5 mulut kartun</h1>
         </div>
         <p className="lede">
-          Upload suara, dapatkan angka 0–11, lalu tulis ke{' '}
-          <code>{VIEW_MODEL_NAME}.{NUMBER_PROPERTY}</code> di <code>mouth.riv</code>.
+          Set <code>{TALKING_PROPERTY}</code> true, lalu blend 5 bentuk kartun: BMP, AE, EE, O, QUW.
         </p>
       </header>
 
@@ -277,14 +307,17 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
           </label>
 
           <label className="field">
-            <span>Teks yang diucapkan (opsional, lebih akurat)</span>
+            <span>Teks yang diucapkan (penting untuk akurat)</span>
             <textarea
               rows={4}
               value={transcript}
               onChange={(e) => setTranscript(e.target.value)}
-              placeholder="Contoh: halo semuanya, selamat datang"
+              placeholder="Tulis persis yang diucapkan, contoh: halo semuanya, selamat datang"
             />
           </label>
+          {audioFile && !transcript.trim() ? (
+            <p className="hint warn">Tanpa teks, mulut hanya ditebak dari audio — biasanya kurang nyambung.</p>
+          ) : null}
 
           <div className="row">
             <label className="seg">
@@ -295,7 +328,7 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
               </select>
             </label>
             <button type="button" className="primary" disabled={!audioFile || status.kind === 'busy'} onClick={() => void convert()}>
-              Ubah jadi angka
+              Ubah jadi blend
             </button>
           </div>
 
@@ -308,9 +341,9 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
           {status.kind === 'error' ? <p className="error">{status.message}</p> : null}
 
           <h2>2. Rive</h2>
-          {binding?.prop ? (
+          {bound ? (
             <p className="hint ok">
-              mouth.riv · {ARTBOARD_NAME} / {VIEW_MODEL_NAME}.{NUMBER_PROPERTY}
+              mouth.riv · {ARTBOARD_NAME} / {VIEW_MODEL_NAME}.{TALKING_PROPERTY}
               {vmStatus ? ` · ${vmStatus}` : ''}
             </p>
           ) : (
@@ -324,18 +357,38 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
               <canvas ref={canvasRef} width={420} height={420} />
             </div>
             <div className="now">
-              <p className="now-label">numberProperty</p>
-              <p className="now-number">{current}</p>
-              <p className="now-name">{visemeLabel(current)}</p>
+              <p className={`talking-pill ${pose.talking ? 'on' : ''}`}>
+                {TALKING_PROPERTY} {pose.talking ? 'true' : 'false'}
+              </p>
+              <p className="now-label">huruf / viseme</p>
+              <p className="now-number">{letterAt(timeline?.letters ?? [], timeline?.fps ?? 50, time + leadMs / 1000) || visemeLabel(pose.primary)}</p>
+              <ul className="now-weights">
+                {active.length > 0 ? (
+                  active.map((item) => (
+                    <li key={item.key}>
+                      <span>{item.key}</span>
+                      <b>{item.value}</b>
+                    </li>
+                  ))
+                ) : (
+                  <li>
+                    <span>semua 0</span>
+                    <b>0</b>
+                  </li>
+                )}
+              </ul>
               <p className="now-time">{timeline ? formatTime(time) : '00:00.00'}</p>
-              <MouthPreview viseme={current} />
+              <MouthPreview viseme={pose.primary} />
             </div>
           </div>
 
           <audio
             ref={audioRef}
             src={audioUrl ?? undefined}
-            onEnded={() => setPlaying(false)}
+            onEnded={() => {
+              setPlaying(false)
+              pushPose(restPose())
+            }}
             onPause={() => setPlaying(false)}
           />
 
@@ -354,7 +407,34 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
             />
           </div>
 
-          {timeline ? <TimelineBar timeline={timeline} time={time} onSeek={seek} /> : null}
+          {timeline ? (
+            <label className="lead">
+              <span>Lead mulut {leadMs} ms</span>
+              <input
+                type="range"
+                min={-40}
+                max={160}
+                step={10}
+                value={leadMs}
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setLeadMs(next)
+                  if (timeline) pushPose(poseAt(timeline.frames, timeline.fps, time + next / 1000))
+                }}
+              />
+              <span className="hint">Mundur kalau mulut telat, maju kalau terlalu awal.</span>
+            </label>
+          ) : null}
+
+          {timeline ? <DebugStrip timeline={timeline} time={time} onSeek={seek} /> : null}
+          {timeline ? (
+            <p className="hint">
+              {timeline.usedTranscript ? 'Mode teks: huruf di-align ke energi suara.' : 'Mode tebakan audio.'}{' '}
+              Huruf sekarang: <code>{letterAt(timeline.letters, timeline.fps, time + leadMs / 1000) || '—'}</code>
+              {' · '}
+              {visemeLabel(pose.primary)}
+            </p>
+          ) : null}
 
           {timeline ? (
             <div className="export">
@@ -375,18 +455,27 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
         </section>
 
         <section className="panel legend">
-          <h2>State 0–11</h2>
-          <p className="hint">Klik untuk tes ke View Model <code>numberProperty</code>.</p>
+          <h2>5 bentuk kartun</h2>
+          <p className="hint">Klik berurutan: pose lama tetap, pose baru dapat value. Klik ketiga: memori lama jadi 0.</p>
           <ol>
-            {VISEMES.map((item) => (
+            {CARTOON_VISEMES.map((item) => (
               <li key={item.id}>
                 <button
                   type="button"
-                  className={item.id === current ? 'active' : ''}
-                  onClick={() => pushViseme(item.id)}
+                  className={
+                    item.key
+                      ? pose.weights[item.key] > 0
+                        ? 'active'
+                        : ''
+                      : pose.talking
+                        ? ''
+                        : 'active'
+                  }
+                  onClick={() => pushPose(item.id === 0 ? restPose() : rememberPose(pose, item.id, 100))}
                 >
-                  <b>{item.id}</b>
-                  <span>{item.label}</span>
+                  <b>{item.key ?? '—'}</b>
+                  <span>{item.hint || item.label}</span>
+                  <em>{item.key ? pose.weights[item.key] : pose.talking ? 1 : 0}</em>
                 </button>
               </li>
             ))}
@@ -397,7 +486,7 @@ const mouth = vmi.number("${NUMBER_PROPERTY}");
   )
 }
 
-function TimelineBar({
+function DebugStrip({
   timeline,
   time,
   onSeek,
@@ -407,40 +496,85 @@ function TimelineBar({
   onSeek: (t: number) => void
 }) {
   const width = 640
+  const duration = Math.max(timeline.duration, 0.01)
+  const peak = Math.max(...timeline.rms, 0.001)
+  const bars = 180
+  const rmsBars = new Array(bars).fill(0).map((_, i) => {
+    const start = Math.floor((i / bars) * timeline.rms.length)
+    const end = Math.max(start + 1, Math.floor(((i + 1) / bars) * timeline.rms.length))
+    let max = 0
+    for (let k = start; k < end; k++) max = Math.max(max, timeline.rms[k] ?? 0)
+    return max
+  })
+  const speechRuns: { x: number; w: number }[] = []
+  let runStart = -1
+  timeline.speech.forEach((spoken, i) => {
+    if (spoken && runStart < 0) runStart = i
+    if ((!spoken || i === timeline.speech.length - 1) && runStart >= 0) {
+      const end = spoken && i === timeline.speech.length - 1 ? i + 1 : i
+      speechRuns.push({
+        x: (runStart / Math.max(timeline.speech.length, 1)) * width,
+        w: ((end - runStart) / Math.max(timeline.speech.length, 1)) * width,
+      })
+      runStart = -1
+    }
+  })
+
+  function seekFromEvent(e: { currentTarget: SVGSVGElement; clientX: number }) {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = (e.clientX - rect.left) / rect.width
+    onSeek(ratio * timeline.duration)
+  }
+
+  const letterMarks: { x: number; g: string }[] = []
+  let prev = ''
+  timeline.letters.forEach((letter, i) => {
+    if (!letter || letter === prev || letter === ' ') return
+    prev = letter
+    letterMarks.push({ x: (i / Math.max(timeline.letters.length, 1)) * width, g: letter })
+  })
 
   return (
     <svg
-      className="timeline"
-      viewBox={`0 0 ${width} 36`}
+      className="timeline debug-strip"
+      viewBox={`0 0 ${width} 78`}
       role="slider"
-      aria-label="Timeline viseme"
-      onClick={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        const ratio = (e.clientX - rect.left) / rect.width
-        onSeek(ratio * timeline.duration)
-      }}
+      aria-label="Debug timeline viseme"
+      onClick={seekFromEvent}
     >
+      {speechRuns.map((run, i) => (
+        <rect key={`s-${i}`} x={run.x} y={0} width={Math.max(run.w, 1)} height={78} fill="#1b2438" />
+      ))}
+      {rmsBars.map((value, i) => {
+        const x = (i / bars) * width
+        const h = Math.max(1, (value / peak) * 28)
+        return <rect key={`r-${i}`} x={x} y={34 - h} width={Math.max(width / bars, 1)} height={h} fill="#4a5570" />
+      })}
       {timeline.keyframes.map((key, i) => {
         const next = timeline.keyframes[i + 1]?.t ?? timeline.duration
-        const x = (key.t / timeline.duration) * width
-        const w = Math.max(1, ((next - key.t) / timeline.duration) * width)
-        const shade = 18 + (key.v / 11) * 28
+        const x = (key.t / duration) * width
+        const w = Math.max(1, ((next - key.t) / duration) * width)
         return (
           <rect
-            key={`${key.t}-${key.v}`}
+            key={`${key.t}-${key.v}-${i}`}
             x={x}
-            y={8}
+            y={40}
             width={w}
-            height={20}
-            fill={`hsl(228 18% ${shade}%)`}
+            height={22}
+            fill={VISEME_COLOR[key.v] ?? '#2a2d36'}
           />
         )
       })}
+      {letterMarks.map((mark, i) => (
+        <text key={`${mark.g}-${i}`} x={mark.x + 2} y={74} fill="#c9d0de" fontSize="8">
+          {mark.g}
+        </text>
+      ))}
       <rect
-        x={(time / Math.max(timeline.duration, 0.01)) * width}
-        y={4}
+        x={(time / duration) * width}
+        y={0}
         width={2}
-        height={28}
+        height={78}
         fill="#d7e0ff"
       />
     </svg>

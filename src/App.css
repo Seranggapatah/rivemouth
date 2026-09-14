@@ -107,6 +107,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .hint { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
 .hint.ok { color: var(--accent); }
+.hint.warn { color: #e2b56a; }
 .error { color: var(--danger); font-size: 13px; }
 .dump {
   margin: 12px 0 0;
@@ -163,9 +164,42 @@ code {
 .now-number {
   margin: 0;
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 72px;
-  line-height: 0.9;
+  font-size: 28px;
+  line-height: 1.1;
   color: var(--head);
+}
+.talking-pill {
+  margin: 0 0 8px;
+  display: inline-block;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.talking-pill.on {
+  border-color: var(--accent-2);
+  color: var(--accent);
+}
+.now-weights {
+  list-style: none;
+  margin: 10px 0 8px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.now-weights li {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.now-weights b {
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  color: var(--head);
+  font-weight: 560;
 }
 .now .mouth-card {
   min-height: 0;
@@ -177,6 +211,13 @@ code {
 
 .transport { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; margin-top: 16px; }
 .timeline { width: 100%; height: 36px; margin-top: 12px; cursor: pointer; display: block; }
+.debug-strip { height: 78px; }
+.lead {
+  display: grid;
+  gap: 4px;
+  margin-top: 12px;
+}
+.lead span { color: var(--muted); font-size: 12px; }
 .export { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 14px; }
 
 .legend ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
@@ -189,14 +230,21 @@ code {
 }
 .legend button b {
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  width: 18px;
+  width: 58px;
+  color: var(--muted);
+}
+.legend button em {
+  margin-left: auto;
+  font-style: normal;
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
   color: var(--muted);
 }
 .legend button.active {
   border-color: var(--accent-2);
   color: var(--head);
 }
-.legend button.active b { color: var(--accent); }
+.legend button.active b,
+.legend button.active em { color: var(--accent); }
 
 @media (max-width: 980px) {
   .top, .grid, .preview-row { grid-template-columns: 1fr; }

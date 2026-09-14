@@ -1,11 +1,13 @@
 import {
   FPS,
+  blendMouthFrames,
+  cartoonizeFrames,
   smoothVisemes,
   toKeyframes,
   type Language,
   type Timeline,
 } from './visemes'
-import { stretchTokens, transcriptToTokens } from './textToVisemes'
+import { makeSpeechMask, stretchTokensToSpeech, transcriptToTokens } from './textToVisemes'
 
 const FFT_SIZE = 1024
 
@@ -247,31 +249,77 @@ export async function analyzeVoice(
     if (rms[f]! < thresh) raw[f] = 0
   }
 
-  let frames = smoothVisemes(raw, 3)
+  const speech = makeSpeechMask(rms, thresh, 3)
+  let frames = cartoonizeFrames(smoothVisemes(raw, 3))
+  const letters = new Array<string>(nFrames).fill('')
   const trimmed = transcript.trim()
+  const usedTranscript = trimmed.length > 0
 
-  if (trimmed) {
+  if (usedTranscript) {
     const tokens = transcriptToTokens(trimmed, language)
-    const textFrames = stretchTokens(tokens, nFrames)
+    const aligned = stretchTokensToSpeech(tokens, nFrames, speech)
     const mixed = new Array<number>(nFrames).fill(0)
     for (let i = 0; i < nFrames; i++) {
-      if (rms[i]! < thresh) {
+      if (!speech[i]) {
         mixed[i] = 0
-      } else if (textFrames[i] === 0) {
+        continue
+      }
+      if (aligned.ids[i] === 0) {
         mixed[i] = frames[i] || 10
+        letters[i] = aligned.letters[i] || ''
       } else {
-        mixed[i] = textFrames[i]!
+        mixed[i] = aligned.ids[i]!
+        letters[i] = aligned.letters[i] ?? ''
       }
     }
-    frames = smoothVisemes(mixed, 2)
+    frames = cartoonizeFrames(smoothVisemes(mixed, 1))
   }
+
+  const voiced = rms.filter((value) => value >= thresh).sort((a, b) => a - b)
+  const peak = voiced[Math.floor(voiced.length * 0.9)] ?? thresh * 6
+  const rawStrength = frames.map((id, i) =>
+    id === 0 ? 0 : rmsToStrength(rms[i] ?? 0, thresh, peak, id),
+  )
+  const strengths = smoothStrength(rawStrength, frames)
+  const poses = blendMouthFrames(frames, strengths)
 
   onProgress?.(1)
 
   return {
     fps: FPS,
     duration: audio.duration,
-    frames,
-    keyframes: toKeyframes(frames, FPS),
+    frames: poses,
+    keyframes: toKeyframes(poses, FPS),
+    rms,
+    speech,
+    letters,
+    thresh,
+    usedTranscript,
   }
+}
+
+function smoothStrength(values: number[], ids: number[]): number[] {
+  const out = values.slice()
+  for (let i = 1; i < values.length - 1; i++) {
+    if (ids[i] === 5) continue
+    out[i] = Math.round(values[i - 1]! * 0.18 + values[i]! * 0.64 + values[i + 1]! * 0.18)
+  }
+  return out
+}
+
+const STRENGTH_MUL: Record<number, number> = {
+  0: 0,
+  5: 0.82,
+  7: 0.95,
+  8: 1,
+  9: 1,
+  10: 1,
+}
+
+function rmsToStrength(rms: number, thresh: number, peak: number, viseme: number): number {
+  if (rms < thresh || viseme <= 0) return 0
+  const span = Math.max(peak - thresh, thresh)
+  const t = Math.max(0, Math.min(1, (rms - thresh) / span))
+  const mul = STRENGTH_MUL[viseme] ?? 0.8
+  return Math.round(Math.max(1, Math.min(100, (40 + t * 60) * mul)))
 }
